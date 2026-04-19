@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<asciiVideo>
+	<paletteIndex>2</paletteIndex>
+	<palette>fire</palette>
+	<fontPath>Courier New Bold.ttf</fontPath>
+	<fontSize>15</fontSize>
+	<cellWidth>20</cellWidth>
+	<cellHeight>20</cellHeight>
+</asciiVideo>

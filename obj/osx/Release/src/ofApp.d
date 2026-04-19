@@ -455,7 +455,19 @@ obj/osx/Release/src/ofApp.o: src/ofApp.cpp src/ofApp.h \
   ../../../libs/openFrameworks/3d/of3dUtils.h \
   ../../../libs/openFrameworks/3d/ofCamera.h \
   ../../../libs/openFrameworks/3d/ofEasyCam.h \
-  ../../../addons/ofxFFmpegRecorder/src/ofxFFmpegRecorder.h
+  ../../../addons/ofxFFmpegRecorder/src/ofxFFmpegRecorder.h \
+  ../../../addons/ofxGui/src/ofxGui.h \
+  ../../../addons/ofxGui/src/ofxToggle.h \
+  ../../../addons/ofxGui/src/ofxBaseGui.h \
+  ../../../addons/ofxGui/src/ofxSlider.h \
+  ../../../addons/ofxGui/src/ofxInputField.h \
+  ../../../addons/ofxGui/src/ofxGuiUtils.h \
+  ../../../addons/ofxGui/src/ofxSliderGroup.h \
+  ../../../addons/ofxGui/src/ofxGuiGroup.h \
+  ../../../addons/ofxGui/src/ofxButton.h \
+  ../../../addons/ofxGui/src/ofxLabel.h \
+  ../../../addons/ofxGui/src/ofxColorPicker.h \
+  ../../../addons/ofxGui/src/ofxPanel.h
 src/ofApp.h:
 ../../../libs/openFrameworks/ofMain.h:
 ../../../libs/openFrameworks/utils/ofConstants.h:
@@ -914,3 +926,15 @@ src/ofApp.h:
 ../../../libs/openFrameworks/3d/ofCamera.h:
 ../../../libs/openFrameworks/3d/ofEasyCam.h:
 ../../../addons/ofxFFmpegRecorder/src/ofxFFmpegRecorder.h:
+../../../addons/ofxGui/src/ofxGui.h:
+../../../addons/ofxGui/src/ofxToggle.h:
+../../../addons/ofxGui/src/ofxBaseGui.h:
+../../../addons/ofxGui/src/ofxSlider.h:
+../../../addons/ofxGui/src/ofxInputField.h:
+../../../addons/ofxGui/src/ofxGuiUtils.h:
+../../../addons/ofxGui/src/ofxSliderGroup.h:
+../../../addons/ofxGui/src/ofxGuiGroup.h:
+../../../addons/ofxGui/src/ofxButton.h:
+../../../addons/ofxGui/src/ofxLabel.h:
+../../../addons/ofxGui/src/ofxColorPicker.h:
+../../../addons/ofxGui/src/ofxPanel.h:

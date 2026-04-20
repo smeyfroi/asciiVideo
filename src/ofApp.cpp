@@ -223,6 +223,10 @@ void ofApp::setupGui() {
 	gui.add(cellW);
 	gui.add(cellH);
 
+	samplePaletteButton.setup("sample palette from video\u2026");
+	samplePaletteButton.addListener(this, &ofApp::onSamplePalettePressed);
+	gui.add(&samplePaletteButton);
+
 	paletteIndex.addListener(this, &ofApp::onPaletteIndexChanged);
 	fontSize.addListener(this, &ofApp::onFontSizeChanged);
 	fontPath.addListener(this, &ofApp::onFontPathChanged);
@@ -266,6 +270,275 @@ void ofApp::onPickFontPressed() {
 }
 
 //--------------------------------------------------------------
+void ofApp::onSamplePalettePressed() {
+	if (isSampling) {
+		ofLogWarning() << "already sampling; ignoring press";
+		return;
+	}
+	if (processing) {
+		ofLogWarning() << "cannot sample while rendering; ignoring press";
+		return;
+	}
+	ofFileDialogResult r = ofSystemLoadDialog("Choose a video to sample colours from", false);
+	if (!r.bSuccess || r.getPath().empty()) return;
+
+	if (!beginSampling(r.getPath())) {
+		ofLogError() << "failed to start sampling from " << r.getPath();
+	}
+}
+
+//--------------------------------------------------------------
+bool ofApp::beginSampling(const std::filesystem::path & videoPath) {
+	if (palettes.empty()) {
+		ofLogError() << "no base palette to derive from";
+		return false;
+	}
+	if (!samplerPlayer.load(videoPath.string())) return false;
+
+	samplingTotalFrames = samplerPlayer.getTotalNumFrames();
+	if (samplingTotalFrames <= 0) {
+		samplerPlayer.close();
+		return false;
+	}
+
+	samplingBaseIndex = ofClamp(paletteIndex.get(), 0, (int)palettes.size() - 1);
+	samplingTargetCount = std::min(samplingTotalFrames, 60);
+	samplingCollected = 0;
+	samplingAttempted = 0;
+	samplingBuffer.clear();
+	samplingBuffer.reserve(samplingTargetCount * 2000);
+	samplingSeekIssued = false;
+	samplingLastObservedFrame = -1;
+	samplingStartMs = ofGetElapsedTimeMillis();
+	samplingSourceName = videoPath.stem().string();
+
+	samplerPlayer.setLoopState(OF_LOOP_NONE);
+	samplerPlayer.play();
+	isSampling = true;
+
+	ofLogNotice() << "sampling " << samplingTargetCount << " frames from " << videoPath;
+	return true;
+}
+
+//--------------------------------------------------------------
+void ofApp::tickSampling() {
+	if (!isSampling) return;
+
+	samplerPlayer.update();
+
+	const uint64_t now = ofGetElapsedTimeMillis();
+	const uint64_t totalElapsed = now - samplingStartMs;
+	const uint64_t kOverallCapMs = 30000;
+	const uint64_t kSeekTimeoutMs = 1000;
+
+	if (totalElapsed > kOverallCapMs) {
+		ofLogWarning() << "sampling hit overall cap (" << kOverallCapMs << "ms); finishing with " << samplingCollected << "/" << samplingTargetCount;
+		finishSampling();
+		return;
+	}
+
+	if (samplingAttempted >= samplingTargetCount) {
+		finishSampling();
+		return;
+	}
+
+	if (!samplingSeekIssued) {
+		const int target = (int)((samplingAttempted + 0.5f) * samplingTotalFrames / samplingTargetCount);
+		samplerPlayer.setFrame(target);
+		samplingSeekIssued = true;
+		samplingSeekIssuedMs = now;
+		samplingLastObservedFrame = samplerPlayer.getCurrentFrame();
+		return;
+	}
+
+	const int cur = samplerPlayer.getCurrentFrame();
+	const bool frameLanded = samplerPlayer.isFrameNew() && cur != samplingLastObservedFrame;
+
+	if (frameLanded) {
+		const ofPixels & px = samplerPlayer.getPixels();
+		if (px.isAllocated()) {
+			const int w = px.getWidth();
+			const int h = px.getHeight();
+			const int stride = std::max(1, samplingPixelStride);
+			for (int y = 0; y < h; y += stride) {
+				for (int x = 0; x < w; x += stride) {
+					samplingBuffer.push_back(px.getColor(x, y));
+				}
+			}
+			++samplingCollected;
+		}
+		++samplingAttempted;
+		samplingSeekIssued = false;
+		return;
+	}
+
+	if (now - samplingSeekIssuedMs > kSeekTimeoutMs) {
+		ofLogWarning() << "seek timeout for sample " << (samplingAttempted + 1) << "/" << samplingTargetCount << " — skipping";
+		++samplingAttempted;
+		samplingSeekIssued = false;
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::cancelSampling() {
+	if (!isSampling) return;
+	samplerPlayer.stop();
+	samplerPlayer.close();
+	samplingBuffer.clear();
+	isSampling = false;
+	ofLogNotice() << "sampling cancelled";
+}
+
+//--------------------------------------------------------------
+void ofApp::finishSampling() {
+	if (!isSampling) return;
+	samplerPlayer.stop();
+	samplerPlayer.close();
+	isSampling = false;
+
+	if (samplingBuffer.empty() || samplingBaseIndex < 0 || samplingBaseIndex >= (int)palettes.size()) {
+		ofLogError() << "sampling produced no usable pixels";
+		return;
+	}
+
+	const Palette & base = palettes[samplingBaseIndex];
+	const int k = (int)base.entries.size();
+
+	ofLogNotice() << "running k-means on " << samplingBuffer.size() << " samples (k=" << k << ")";
+	auto centers = kmeansColours(samplingBuffer, k);
+	samplingBuffer.clear();
+	samplingBuffer.shrink_to_fit();
+
+	if ((int)centers.size() != k) {
+		ofLogError() << "k-means returned " << centers.size() << " centers, expected " << k;
+		return;
+	}
+
+	std::sort(centers.begin(), centers.end(), [](const ofColor & a, const ofColor & b) {
+		return a.getLightness() < b.getLightness();
+	});
+
+	Palette out;
+	out.name = base.name + " + " + samplingSourceName;
+	out.backgroundColor = base.backgroundColor;
+	out.entries.reserve(k);
+	for (int i = 0; i < k; ++i) {
+		PaletteEntry e;
+		e.ch = base.entries[i].ch;
+		e.color = centers[i];
+		out.entries.push_back(e);
+	}
+
+	palettes.push_back(std::move(out));
+	appendPaletteToConfigJson(palettes.back());
+
+	int newIdx = (int)palettes.size() - 1;
+	paletteIndex.set("paletteIndex", newIdx, 0, newIdx);
+	paletteLabel = palettes[newIdx].name;
+
+	saveSettings();
+
+	ofLogNotice() << "added palette: " << palettes[newIdx].name << " (" << samplingCollected << " frames sampled)";
+}
+
+//--------------------------------------------------------------
+std::vector<ofColor> ofApp::kmeansColours(const std::vector<ofColor> & samples, int k) {
+	if (samples.empty() || k <= 0) return {};
+
+	std::vector<ofColor> centers;
+	centers.reserve(k);
+	centers.push_back(samples[(size_t)ofRandom(samples.size())]);
+
+	// k-means++ init
+	while ((int)centers.size() < k) {
+		std::vector<float> distSq(samples.size());
+		float total = 0.0f;
+		for (size_t i = 0; i < samples.size(); ++i) {
+			float minD = std::numeric_limits<float>::max();
+			for (const auto & c : centers) {
+				float dr = float(samples[i].r) - float(c.r);
+				float dg = float(samples[i].g) - float(c.g);
+				float db = float(samples[i].b) - float(c.b);
+				float d = dr * dr + dg * dg + db * db;
+				if (d < minD) minD = d;
+			}
+			distSq[i] = minD;
+			total += minD;
+		}
+		if (total <= 0.0f) {
+			centers.push_back(samples[(size_t)ofRandom(samples.size())]);
+			continue;
+		}
+		float pick = ofRandom(total);
+		float cumul = 0.0f;
+		size_t chosen = samples.size() - 1;
+		for (size_t i = 0; i < samples.size(); ++i) {
+			cumul += distSq[i];
+			if (cumul >= pick) { chosen = i; break; }
+		}
+		centers.push_back(samples[chosen]);
+	}
+
+	// Lloyd's iterations
+	std::vector<int> assign(samples.size(), -1);
+	const int maxIter = 20;
+	for (int iter = 0; iter < maxIter; ++iter) {
+		bool changed = false;
+		for (size_t i = 0; i < samples.size(); ++i) {
+			float minD = std::numeric_limits<float>::max();
+			int best = 0;
+			for (int ci = 0; ci < k; ++ci) {
+				float dr = float(samples[i].r) - float(centers[ci].r);
+				float dg = float(samples[i].g) - float(centers[ci].g);
+				float db = float(samples[i].b) - float(centers[ci].b);
+				float d = dr * dr + dg * dg + db * db;
+				if (d < minD) { minD = d; best = ci; }
+			}
+			if (assign[i] != best) { assign[i] = best; changed = true; }
+		}
+		if (!changed) break;
+
+		std::vector<double> sumR(k, 0), sumG(k, 0), sumB(k, 0);
+		std::vector<int> counts(k, 0);
+		for (size_t i = 0; i < samples.size(); ++i) {
+			int ci = assign[i];
+			sumR[ci] += samples[i].r;
+			sumG[ci] += samples[i].g;
+			sumB[ci] += samples[i].b;
+			counts[ci]++;
+		}
+		for (int ci = 0; ci < k; ++ci) {
+			if (counts[ci] > 0) {
+				centers[ci].r = (int)std::round(sumR[ci] / counts[ci]);
+				centers[ci].g = (int)std::round(sumG[ci] / counts[ci]);
+				centers[ci].b = (int)std::round(sumB[ci] / counts[ci]);
+			}
+		}
+	}
+
+	return centers;
+}
+
+//--------------------------------------------------------------
+void ofApp::appendPaletteToConfigJson(const Palette & pal) {
+	if (!configLoaded) return;
+	ofJson pj;
+	pj["name"] = pal.name;
+	pj["backgroundColor"] = { (int)pal.backgroundColor.r, (int)pal.backgroundColor.g, (int)pal.backgroundColor.b };
+	pj["characters"] = ofJson::array();
+	for (const auto & e : pal.entries) {
+		ofJson ej;
+		ej["char"] = std::string(1, e.ch);
+		ej["color"] = { (int)e.color.r, (int)e.color.g, (int)e.color.b };
+		pj["characters"].push_back(ej);
+	}
+	if (!configJson.contains("palettes")) {
+		configJson["palettes"] = ofJson::array();
+	}
+	configJson["palettes"].push_back(pj);
+}
+
+//--------------------------------------------------------------
 void ofApp::saveSettings() {
 	if (!configLoaded || configJsonPath.empty()) return;
 
@@ -285,6 +558,10 @@ void ofApp::saveSettings() {
 
 //--------------------------------------------------------------
 void ofApp::update() {
+	if (isSampling) {
+		tickSampling();
+		return;
+	}
 	if (!processing) return;
 
 	player.update();
@@ -310,7 +587,21 @@ void ofApp::draw() {
 		ofClear(pal.backgroundColor.r, pal.backgroundColor.g, pal.backgroundColor.b, 255);
 		for (int i = 0; i < w; i += stepX) {
 			for (int j = 0; j < h; j += stepY) {
-				float lightness = src.getColor(i, j).getLightness();
+				const int xEnd = std::min(i + stepX, w);
+				const int yEnd = std::min(j + stepY, h);
+				long rSum = 0, gSum = 0, bSum = 0;
+				int count = 0;
+				for (int yy = j; yy < yEnd; ++yy) {
+					for (int xx = i; xx < xEnd; ++xx) {
+						ofColor c = src.getColor(xx, yy);
+						rSum += c.r;
+						gSum += c.g;
+						bSum += c.b;
+						++count;
+					}
+				}
+				ofColor avg(rSum / count, gSum / count, bSum / count);
+				float lightness = avg.getLightness();
 				int idx = powf(ofMap(lightness, 0, 255, 0, 1), 2.5f) * last;
 				idx = ofClamp(idx, 0, last);
 				const PaletteEntry & e = pal.entries[idx];
@@ -340,6 +631,32 @@ void ofApp::draw() {
 		ofDrawBitmapStringHighlight(hud, 10, ofGetHeight() - 20);
 	}
 
+	if (isSampling) {
+		const int margin = 40;
+		const int barH = 24;
+		const int barW = ofGetWidth() - margin * 2;
+		const int barX = margin;
+		const int barY = ofGetHeight() / 2 - barH / 2;
+		float progress = samplingTargetCount > 0 ? (float)samplingAttempted / (float)samplingTargetCount : 0.0f;
+
+		ofPushStyle();
+		ofSetColor(0, 0, 0, 200);
+		ofDrawRectangle(0, barY - 60, ofGetWidth(), 140);
+		ofSetColor(255);
+		ofNoFill();
+		ofDrawRectangle(barX, barY, barW, barH);
+		ofFill();
+		ofSetColor(120, 200, 255);
+		ofDrawRectangle(barX, barY, barW * ofClamp(progress, 0.0f, 1.0f), barH);
+		ofSetColor(255);
+		std::string label = "sampling palette from " + samplingSourceName + "\n"
+			+ ofToString(samplingAttempted) + " / " + ofToString(samplingTargetCount) + " frames"
+			+ "   (" + ofToString((int)(progress * 100)) + "%)";
+		ofDrawBitmapStringHighlight(label, barX, barY - 20);
+		ofDrawBitmapString("press esc to cancel", barX, barY + barH + 20);
+		ofPopStyle();
+	}
+
 	gui.draw();
 }
 
@@ -365,7 +682,7 @@ void ofApp::startProcessing(const std::filesystem::path & path) {
 
 	outputPath = inputPath.parent_path() / (inputPath.stem().string() + "_ascii.mp4");
 
-	renderFbo.allocate(w, h, GL_RGB);
+	renderFbo.allocate(w, h, GL_RGB, 4);
 	ofSetWindowShape(w, h);
 
 	float fps = 30.0f;
@@ -377,6 +694,11 @@ void ofApp::startProcessing(const std::filesystem::path & path) {
 	recorder.setOverWrite(true);
 	recorder.setFFmpegPath(ofToDataPath("ffmpeg", true));
 	recorder.setInputPixelFormat(OF_IMAGE_COLOR);
+	recorder.setVideoCodec("libx264");
+	recorder.addAdditionalOutputArgument("-crf 18");
+	recorder.addAdditionalOutputArgument("-preset medium");
+	recorder.addAdditionalOutputArgument("-pix_fmt yuv420p");
+	recorder.addAdditionalOutputArgument("-vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2'");
 	recorder.setOutputPath(outputPath.string());
 	recorder.startCustomRecord();
 
@@ -400,6 +722,10 @@ void ofApp::finishProcessing() {
 
 //--------------------------------------------------------------
 void ofApp::dragEvent(ofDragInfo dragInfo) {
+	if (isSampling) {
+		ofLogWarning() << "sampling in progress; drop ignored";
+		return;
+	}
 	if (dragInfo.files.empty()) return;
 	startProcessing(std::filesystem::path(dragInfo.files.front()));
 }
@@ -409,6 +735,9 @@ void ofApp::keyPressed(int key) {
 	if (key == 'q' && processing) {
 		ofLogNotice() << "user requested early stop";
 		finishProcessing();
+	}
+	if (key == OF_KEY_ESC && isSampling) {
+		cancelSampling();
 	}
 }
 

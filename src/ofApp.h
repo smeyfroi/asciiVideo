@@ -62,7 +62,15 @@ private:
 	void onFontSizeChanged(int & v);
 	void onFontPathChanged(std::string & v);
 	void onPickFontPressed();
+	void onSamplePalettePressed();
 	void saveSettings();
+
+	bool beginSampling(const std::filesystem::path & videoPath);
+	void tickSampling();
+	void finishSampling();
+	void cancelSampling();
+	std::vector<ofColor> kmeansColours(const std::vector<ofColor> & samples, int k);
+	void appendPaletteToConfigJson(const Palette & pal);
 
 	void startProcessing(const std::filesystem::path & path);
 	void finishProcessing();
@@ -84,8 +92,25 @@ private:
 	bool processing = false;
 	int framesWritten = 0;
 
+	// Sampling state machine
+	ofVideoPlayer samplerPlayer;
+	bool isSampling = false;
+	int samplingBaseIndex = 0;
+	int samplingTargetCount = 0;
+	int samplingTotalFrames = 0;
+	int samplingCollected = 0;
+	int samplingAttempted = 0;
+	int samplingPixelStride = 8;
+	bool samplingSeekIssued = false;
+	int samplingLastObservedFrame = -1;
+	uint64_t samplingStartMs = 0;
+	uint64_t samplingSeekIssuedMs = 0;
+	std::vector<ofColor> samplingBuffer;
+	std::string samplingSourceName;
+
 	ofxPanel gui;
 	ofxButton pickFontButton;
+	ofxButton samplePaletteButton;
 	ofxLabel fontDisplay;
 	ofParameter<int> paletteIndex;
 	ofParameter<std::string> paletteLabel;

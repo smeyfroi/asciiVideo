@@ -64,6 +64,15 @@ OF_ROOT = ../../..
 # PROJECT_EXCLUSIONS =
 
 ################################################################################
+# PROJECT AFTER
+#   Shell command run after the app bundle is built. Used here to make the
+#   .app self-contained for distribution: copy bin/data/ into the bundle's
+#   Contents/Resources/ and ad-hoc sign the bundled ffmpeg binary so
+#   Gatekeeper doesn't kill it on first launch.
+################################################################################
+PROJECT_AFTER = cp -R bin/data bin/$(BIN_NAME).app/Contents/Resources/ && codesign -s - -f bin/$(BIN_NAME).app/Contents/Resources/data/ffmpeg
+
+################################################################################
 # PROJECT LINKER FLAGS
 #	These flags will be sent to the linker when compiling the executable.
 #

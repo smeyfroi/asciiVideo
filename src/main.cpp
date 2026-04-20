@@ -19,8 +19,23 @@
 #include "ofMain.h"
 #include "ofApp.h"
 
+#include <filesystem>
+
 //========================================================================
 int main( ){
+
+	// If running from inside a .app bundle that has its own data/ folder
+	// inside Contents/Resources/, prefer that over the default sibling path.
+	// Lets a single-folder .app be copied anywhere and still find its data.
+	{
+		namespace fs = std::filesystem;
+		fs::path exeDir = ofFilePath::getCurrentExeDirFS();
+		fs::path bundleData = exeDir / ".." / "Resources" / "data";
+		std::error_code ec;
+		if (fs::is_directory(bundleData, ec)) {
+			ofSetDataPathRoot(fs::canonical(bundleData, ec).string());
+		}
+	}
 
 	//Use ofGLFWWindowSettings for more options like multi-monitor fullscreen
 	ofGLWindowSettings settings;

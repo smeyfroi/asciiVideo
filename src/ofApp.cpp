@@ -21,8 +21,7 @@
 #include <fstream>
 
 namespace {
-constexpr const char * kConfigFileName = "palettes.json";
-constexpr const char * kSettingsFileName = "settings.xml";
+constexpr const char * kConfigFileName = "asciiVideo-settings.json";
 constexpr const char * kAppName = "asciiVideo";
 constexpr const char * kPointerFileName = "config-path.txt";
 }
@@ -43,9 +42,7 @@ void ofApp::setup() {
 
 //--------------------------------------------------------------
 void ofApp::exit() {
-	if (!settingsXmlPath.empty()) {
-		gui.saveToFile(settingsXmlPath.string());
-	}
+	saveSettings();
 }
 
 //--------------------------------------------------------------
@@ -86,14 +83,13 @@ void ofApp::resolveConfigDir() {
 				ofLogError() << "failed to write pointer file at " << pointerPath;
 			}
 		} else {
-			ofLogWarning() << "no config folder chosen; falling back to bundled data folder";
-			chosen = ofToDataPath("", true);
+			ofLogWarning() << "no config folder chosen; falling back to " << appSupportDir;
+			chosen = appSupportDir;
 		}
 	}
 
 	configDir = chosen;
 	configJsonPath = configDir / kConfigFileName;
-	settingsXmlPath = configDir / kSettingsFileName;
 
 	if (!fs::exists(configJsonPath, ec)) {
 		fs::path bundled = ofToDataPath(kConfigFileName, true);
@@ -120,15 +116,19 @@ void ofApp::loadConfig() {
 	int cellHDefault = 9;
 	std::string startPalette;
 
+	configLoaded = false;
+	configJson = ofJson{};
+
 	if (!std::filesystem::exists(configJsonPath)) {
 		ofLogWarning() << "no " << configJsonPath << "; using built-in fallback palette";
 		installFallbackPalette();
 	} else {
 		try {
-			ofJson cfg = ofLoadJson(configJsonPath.string());
+			configJson = ofLoadJson(configJsonPath.string());
+			configLoaded = true;
 
-			if (cfg.contains("defaults")) {
-				const auto & d = cfg["defaults"];
+			if (configJson.contains("settings")) {
+				const auto & d = configJson["settings"];
 				if (d.contains("fontPath")) fontPathDefault = d["fontPath"].get<std::string>();
 				if (d.contains("fontSize")) fontSizeDefault = d["fontSize"].get<int>();
 				if (d.contains("cellWidth")) cellWDefault = d["cellWidth"].get<int>();
@@ -136,10 +136,17 @@ void ofApp::loadConfig() {
 				if (d.contains("startPalette")) startPalette = d["startPalette"].get<std::string>();
 			}
 
-			if (cfg.contains("palettes")) {
-				for (const auto & p : cfg["palettes"]) {
+			if (configJson.contains("palettes")) {
+				for (const auto & p : configJson["palettes"]) {
 					Palette pal;
 					pal.name = p.value("name", std::string("unnamed"));
+					if (p.contains("backgroundColor")) {
+						const auto & bg = p["backgroundColor"];
+						pal.backgroundColor.set(
+							bg.size() > 0 ? bg[0].get<int>() : 0,
+							bg.size() > 1 ? bg[1].get<int>() : 0,
+							bg.size() > 2 ? bg[2].get<int>() : 0);
+					}
 					for (const auto & e : p["characters"]) {
 						PaletteEntry pe;
 						std::string s = e.value("char", std::string(" "));
@@ -156,6 +163,7 @@ void ofApp::loadConfig() {
 			}
 		} catch (const std::exception & e) {
 			ofLogError() << "failed to parse " << configJsonPath << ": " << e.what();
+			configLoaded = false;
 		}
 
 		if (palettes.empty()) {
@@ -199,10 +207,18 @@ void ofApp::installFallbackPalette() {
 
 //--------------------------------------------------------------
 void ofApp::setupGui() {
-	gui.setup(kAppName, settingsXmlPath.string());
+	gui.setup(kAppName);
+	gui.disableHeader();
 	gui.add(paletteIndex);
 	gui.add(paletteLabel);
-	gui.add(fontPath);
+
+	pickFontButton.setup("pick font\u2026");
+	pickFontButton.addListener(this, &ofApp::onPickFontPressed);
+	gui.add(&pickFontButton);
+
+	fontDisplay.setup("font", std::filesystem::path(fontPath.get()).filename().string());
+	gui.add(&fontDisplay);
+
 	gui.add(fontSize);
 	gui.add(cellW);
 	gui.add(cellH);
@@ -210,10 +226,6 @@ void ofApp::setupGui() {
 	paletteIndex.addListener(this, &ofApp::onPaletteIndexChanged);
 	fontSize.addListener(this, &ofApp::onFontSizeChanged);
 	fontPath.addListener(this, &ofApp::onFontPathChanged);
-
-	if (std::filesystem::exists(settingsXmlPath)) {
-		gui.loadFromFile(settingsXmlPath.string());
-	}
 
 	int loadedIdx = ofClamp(paletteIndex.get(), 0, (int)palettes.size() - 1);
 	paletteIndex = loadedIdx;
@@ -242,6 +254,33 @@ void ofApp::onFontSizeChanged(int & v) {
 //--------------------------------------------------------------
 void ofApp::onFontPathChanged(std::string & v) {
 	reloadFont();
+	fontDisplay = std::filesystem::path(v).filename().string();
+}
+
+//--------------------------------------------------------------
+void ofApp::onPickFontPressed() {
+	ofFileDialogResult r = ofSystemLoadDialog("Choose a font file (.ttf, .otf)", false);
+	if (r.bSuccess && !r.getPath().empty()) {
+		fontPath = r.getPath();
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::saveSettings() {
+	if (!configLoaded || configJsonPath.empty()) return;
+
+	configJson["settings"]["fontPath"] = fontPath.get();
+	configJson["settings"]["fontSize"] = fontSize.get();
+	configJson["settings"]["cellWidth"] = cellW.get();
+	configJson["settings"]["cellHeight"] = cellH.get();
+	if (!palettes.empty()) {
+		int idx = ofClamp(paletteIndex.get(), 0, (int)palettes.size() - 1);
+		configJson["settings"]["startPalette"] = palettes[idx].name;
+	}
+
+	if (!ofSavePrettyJson(configJsonPath.string(), configJson)) {
+		ofLogError() << "failed to save settings to " << configJsonPath;
+	}
 }
 
 //--------------------------------------------------------------
@@ -268,7 +307,7 @@ void ofApp::draw() {
 		const int last = (int)pal.entries.size() - 1;
 
 		renderFbo.begin();
-		ofClear(0, 0, 0, 255);
+		ofClear(pal.backgroundColor.r, pal.backgroundColor.g, pal.backgroundColor.b, 255);
 		for (int i = 0; i < w; i += stepX) {
 			for (int j = 0; j < h; j += stepY) {
 				float lightness = src.getColor(i, j).getLightness();
@@ -336,7 +375,7 @@ void ofApp::startProcessing(const std::filesystem::path & path) {
 
 	recorder.setup(true, false, glm::vec2(w, h), fps);
 	recorder.setOverWrite(true);
-	recorder.setFFmpegPathToAddonsPath();
+	recorder.setFFmpegPath(ofToDataPath("ffmpeg", true));
 	recorder.setInputPixelFormat(OF_IMAGE_COLOR);
 	recorder.setOutputPath(outputPath.string());
 	recorder.startCustomRecord();

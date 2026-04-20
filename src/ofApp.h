@@ -49,6 +49,7 @@ private:
 	};
 	struct Palette {
 		std::string name;
+		ofColor backgroundColor { 0, 0, 0 };
 		std::vector<PaletteEntry> entries;
 	};
 
@@ -60,6 +61,8 @@ private:
 	void onPaletteIndexChanged(int & idx);
 	void onFontSizeChanged(int & v);
 	void onFontPathChanged(std::string & v);
+	void onPickFontPressed();
+	void saveSettings();
 
 	void startProcessing(const std::filesystem::path & path);
 	void finishProcessing();
@@ -71,9 +74,10 @@ private:
 	ofTrueTypeFont font;
 
 	std::vector<Palette> palettes;
+	ofJson configJson;
+	bool configLoaded = false;
 	std::filesystem::path configDir;
 	std::filesystem::path configJsonPath;
-	std::filesystem::path settingsXmlPath;
 	std::filesystem::path inputPath;
 	std::filesystem::path outputPath;
 
@@ -81,6 +85,8 @@ private:
 	int framesWritten = 0;
 
 	ofxPanel gui;
+	ofxButton pickFontButton;
+	ofxLabel fontDisplay;
 	ofParameter<int> paletteIndex;
 	ofParameter<std::string> paletteLabel;
 	ofParameter<std::string> fontPath;

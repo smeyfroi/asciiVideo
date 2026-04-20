@@ -1,3 +1,6 @@
 /bin/asciiVideoDebug.app
 /bin/asciiVideo.app
 /.DS_Store
+.DS_Store
+/obj/osx/Release/src/ofApp.o
+/obj/osx/Release/src/main.o

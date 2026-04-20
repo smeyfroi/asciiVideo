@@ -18,9 +18,13 @@
 
 #include "ofApp.h"
 
+#include <fstream>
+
 namespace {
-constexpr const char * kConfigFile = "palettes.json";
-constexpr const char * kSettingsFile = "settings.xml";
+constexpr const char * kConfigFileName = "palettes.json";
+constexpr const char * kSettingsFileName = "settings.xml";
+constexpr const char * kAppName = "asciiVideo";
+constexpr const char * kPointerFileName = "config-path.txt";
 }
 
 //--------------------------------------------------------------
@@ -29,6 +33,7 @@ void ofApp::setup() {
 	ofSetVerticalSync(true);
 	ofEnableAlphaBlending();
 
+	resolveConfigDir();
 	loadConfig();
 	setupGui();
 	reloadFont();
@@ -38,7 +43,71 @@ void ofApp::setup() {
 
 //--------------------------------------------------------------
 void ofApp::exit() {
-	gui.saveToFile(kSettingsFile);
+	if (!settingsXmlPath.empty()) {
+		gui.saveToFile(settingsXmlPath.string());
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::resolveConfigDir() {
+	namespace fs = std::filesystem;
+
+	fs::path appSupportDir = fs::path(ofFilePath::getUserHomeDir()) / "Library" / "Application Support" / kAppName;
+	std::error_code ec;
+	fs::create_directories(appSupportDir, ec);
+	fs::path pointerPath = appSupportDir / kPointerFileName;
+
+	fs::path chosen;
+	if (fs::exists(pointerPath, ec)) {
+		std::ifstream in(pointerPath);
+		std::string stored;
+		if (in) std::getline(in, stored);
+		while (!stored.empty() && (stored.back() == '\n' || stored.back() == '\r' || stored.back() == ' ')) {
+			stored.pop_back();
+		}
+		if (!stored.empty() && fs::is_directory(stored, ec)) {
+			chosen = stored;
+		} else if (!stored.empty()) {
+			ofLogWarning() << "stored config path is no longer a directory, re-prompting: " << stored;
+		}
+	}
+
+	if (chosen.empty()) {
+		ofFileDialogResult dlg = ofSystemLoadDialog(
+			"Choose a folder for asciiVideo palettes and settings", true,
+			ofFilePath::getUserHomeDir());
+		if (dlg.bSuccess && !dlg.getPath().empty() && fs::is_directory(dlg.getPath(), ec)) {
+			chosen = dlg.getPath();
+			std::ofstream out(pointerPath, std::ios::trunc);
+			if (out) {
+				out << chosen.string();
+				ofLogNotice() << "saved config location pointer -> " << chosen;
+			} else {
+				ofLogError() << "failed to write pointer file at " << pointerPath;
+			}
+		} else {
+			ofLogWarning() << "no config folder chosen; falling back to bundled data folder";
+			chosen = ofToDataPath("", true);
+		}
+	}
+
+	configDir = chosen;
+	configJsonPath = configDir / kConfigFileName;
+	settingsXmlPath = configDir / kSettingsFileName;
+
+	if (!fs::exists(configJsonPath, ec)) {
+		fs::path bundled = ofToDataPath(kConfigFileName, true);
+		if (fs::exists(bundled, ec) && fs::absolute(bundled, ec) != fs::absolute(configJsonPath, ec)) {
+			fs::copy_file(bundled, configJsonPath, fs::copy_options::none, ec);
+			if (ec) {
+				ofLogError() << "failed to seed palettes.json into " << configDir << ": " << ec.message();
+			} else {
+				ofLogNotice() << "seeded palettes.json into " << configDir;
+			}
+		}
+	}
+
+	ofLogNotice() << "config dir: " << configDir;
 }
 
 //--------------------------------------------------------------
@@ -51,13 +120,12 @@ void ofApp::loadConfig() {
 	int cellHDefault = 9;
 	std::string startPalette;
 
-	ofFile cfgFile(kConfigFile);
-	if (!cfgFile.exists()) {
-		ofLogWarning() << "no " << kConfigFile << " in data folder; using built-in fallback palette";
+	if (!std::filesystem::exists(configJsonPath)) {
+		ofLogWarning() << "no " << configJsonPath << "; using built-in fallback palette";
 		installFallbackPalette();
 	} else {
 		try {
-			ofJson cfg = ofLoadJson(kConfigFile);
+			ofJson cfg = ofLoadJson(configJsonPath.string());
 
 			if (cfg.contains("defaults")) {
 				const auto & d = cfg["defaults"];
@@ -87,7 +155,7 @@ void ofApp::loadConfig() {
 				}
 			}
 		} catch (const std::exception & e) {
-			ofLogError() << "failed to parse " << kConfigFile << ": " << e.what();
+			ofLogError() << "failed to parse " << configJsonPath << ": " << e.what();
 		}
 
 		if (palettes.empty()) {
@@ -131,7 +199,7 @@ void ofApp::installFallbackPalette() {
 
 //--------------------------------------------------------------
 void ofApp::setupGui() {
-	gui.setup("asciiVideo", kSettingsFile);
+	gui.setup(kAppName, settingsXmlPath.string());
 	gui.add(paletteIndex);
 	gui.add(paletteLabel);
 	gui.add(fontPath);
@@ -143,7 +211,9 @@ void ofApp::setupGui() {
 	fontSize.addListener(this, &ofApp::onFontSizeChanged);
 	fontPath.addListener(this, &ofApp::onFontPathChanged);
 
-	gui.loadFromFile(kSettingsFile);
+	if (std::filesystem::exists(settingsXmlPath)) {
+		gui.loadFromFile(settingsXmlPath.string());
+	}
 
 	int loadedIdx = ofClamp(paletteIndex.get(), 0, (int)palettes.size() - 1);
 	paletteIndex = loadedIdx;

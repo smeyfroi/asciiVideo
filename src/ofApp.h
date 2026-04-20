@@ -52,6 +52,7 @@ private:
 		std::vector<PaletteEntry> entries;
 	};
 
+	void resolveConfigDir();
 	void loadConfig();
 	void installFallbackPalette();
 	void setupGui();
@@ -70,6 +71,9 @@ private:
 	ofTrueTypeFont font;
 
 	std::vector<Palette> palettes;
+	std::filesystem::path configDir;
+	std::filesystem::path configJsonPath;
+	std::filesystem::path settingsXmlPath;
 	std::filesystem::path inputPath;
 	std::filesystem::path outputPath;
 

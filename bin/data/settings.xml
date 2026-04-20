@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <asciiVideo>
-	<paletteIndex>2</paletteIndex>
-	<palette>fire</palette>
+	<paletteIndex>3</paletteIndex>
+	<palette>blueprint</palette>
 	<fontPath>Courier New Bold.ttf</fontPath>
 	<fontSize>15</fontSize>
 	<cellWidth>20</cellWidth>

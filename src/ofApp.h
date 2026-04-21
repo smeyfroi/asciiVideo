@@ -116,6 +116,7 @@ private:
 	ofParameter<std::string> paletteLabel;
 	ofParameter<std::string> fontPath;
 	ofParameter<int> fontSize;
+	ofParameter<float> gamma;
 	ofParameter<int> cellW;
 	ofParameter<int> cellH;
 };

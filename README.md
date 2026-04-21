@@ -25,6 +25,7 @@ The panel at the top-left holds live controls:
 - **pick font…** — opens a file dialog for a `.ttf` / `.otf` font file. The chosen font is used immediately for new frames.
 - **font** — read-only name of the current font file.
 - **fontSize** — glyph size in points.
+- **gamma** — fixed-gamma lightness mapping for palette lookup. `1.0` is linear; higher values bias toward darker/lower-index characters, lower values bias toward lighter/higher-index characters.
 - **cellWidth** / **cellHeight** — size (in source pixels) of each ASCII cell. The app averages the source pixels inside each cell to choose the character, so larger cells = coarser grid, smaller cells = denser grid and slower render.
 - **sample palette from video…** — opens a file dialog; clusters the colours of the chosen video into a new palette built from the *current* palette's character set and background. See [Sampling a palette from a video](#sampling-a-palette-from-a-video) below.
 
@@ -42,6 +43,7 @@ Live GUI state; last-known values for every control. Edit by hand if you like, b
 "settings": {
   "fontPath": "Courier New Bold.ttf",
   "fontSize": 9,
+  "gamma": 1.0,
   "cellWidth": 7,
   "cellHeight": 9,
   "startPalette": "classic"
@@ -49,6 +51,7 @@ Live GUI state; last-known values for every control. Edit by hand if you like, b
 ```
 
 - `fontPath`: bare filename (looked up inside the bundle's `data/` folder) or an absolute path to any font on your system.
+- `gamma`: fixed gamma exponent used for palette lookup. `1.0` is linear, values above `1.0` bias darker, values below `1.0` bias lighter.
 - `startPalette`: name of the palette to select at startup. Falls back to the first palette if the name isn't found.
 
 ### `palettes`
@@ -74,7 +77,7 @@ An array of palette definitions. The app never rewrites this block on exit, so y
 
 ### Palette authoring tips
 
-- The app maps the luminance of each source-image cell (with a `^2.5` gamma curve) to an entry index. So put your "darkest" character first, "lightest" last.
+- The app maps the luminance of each source-image cell across the fixed `0..255` lightness range, then applies the configured `gamma` exponent before choosing a palette entry. So put your "darkest" character first, "lightest" last.
 - For a **dark-background** palette, use space (` `) as the first entry and progressively denser glyphs (`@`, `#`) at the light end. Sparse characters let the background show through, which reads as dark; dense coloured characters read as light.
 - For a **light-background** palette (see `seaside`), flip the density: dense dark-ink characters at index 0, sparse/space at the end. The background shows through in light regions.
 - `backgroundColor` and the foreground colours don't have to be related — wild combinations work.

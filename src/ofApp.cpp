@@ -17,7 +17,9 @@
  */
 
 #include "ofApp.h"
+#include "NativeDialog.h"
 
+#include <cmath>
 #include <fstream>
 
 namespace {
@@ -112,6 +114,7 @@ void ofApp::loadConfig() {
 
 	std::string fontPathDefault = "Courier New Bold.ttf";
 	int fontSizeDefault = 9;
+	float gammaDefault = 1.0f;
 	int cellWDefault = 7;
 	int cellHDefault = 9;
 	std::string startPalette;
@@ -123,14 +126,19 @@ void ofApp::loadConfig() {
 		ofLogWarning() << "no " << configJsonPath << "; using built-in fallback palette";
 		installFallbackPalette();
 	} else {
-		try {
-			configJson = ofLoadJson(configJsonPath.string());
+		std::ifstream ifs(configJsonPath);
+		if (!ifs) {
+			ofLogError() << "cannot open " << configJsonPath;
+			installFallbackPalette();
+		} else try {
+			configJson = ofJson::parse(ifs);
 			configLoaded = true;
 
 			if (configJson.contains("settings")) {
 				const auto & d = configJson["settings"];
 				if (d.contains("fontPath")) fontPathDefault = d["fontPath"].get<std::string>();
 				if (d.contains("fontSize")) fontSizeDefault = d["fontSize"].get<int>();
+				if (d.contains("gamma")) gammaDefault = d["gamma"].get<float>();
 				if (d.contains("cellWidth")) cellWDefault = d["cellWidth"].get<int>();
 				if (d.contains("cellHeight")) cellHDefault = d["cellHeight"].get<int>();
 				if (d.contains("startPalette")) startPalette = d["startPalette"].get<std::string>();
@@ -164,6 +172,10 @@ void ofApp::loadConfig() {
 		} catch (const std::exception & e) {
 			ofLogError() << "failed to parse " << configJsonPath << ": " << e.what();
 			configLoaded = false;
+			auto choice = asciiVideo::showConfigLoadErrorDialog(configJsonPath.string(), e.what());
+			if (choice == asciiVideo::LoadErrorChoice::Quit) {
+				std::exit(0);
+			}
 		}
 
 		if (palettes.empty()) {
@@ -184,6 +196,7 @@ void ofApp::loadConfig() {
 
 	fontPath.set("fontPath", fontPathDefault);
 	fontSize.set("fontSize", fontSizeDefault, 4, 48);
+	gamma.set("gamma", gammaDefault, 0.1f, 4.0f);
 	cellW.set("cellWidth", cellWDefault, 2, 64);
 	cellH.set("cellHeight", cellHDefault, 2, 64);
 	paletteIndex.set("paletteIndex", startIdx, 0, std::max(0, (int)palettes.size() - 1));
@@ -220,6 +233,7 @@ void ofApp::setupGui() {
 	gui.add(&fontDisplay);
 
 	gui.add(fontSize);
+	gui.add(gamma);
 	gui.add(cellW);
 	gui.add(cellH);
 
@@ -544,6 +558,7 @@ void ofApp::saveSettings() {
 
 	configJson["settings"]["fontPath"] = fontPath.get();
 	configJson["settings"]["fontSize"] = fontSize.get();
+	configJson["settings"]["gamma"] = gamma.get();
 	configJson["settings"]["cellWidth"] = cellW.get();
 	configJson["settings"]["cellHeight"] = cellH.get();
 	if (!palettes.empty()) {
@@ -602,7 +617,8 @@ void ofApp::draw() {
 				}
 				ofColor avg(rSum / count, gSum / count, bSum / count);
 				float lightness = avg.getLightness();
-				int idx = powf(ofMap(lightness, 0, 255, 0, 1), 2.5f) * last;
+				float normalized = ofMap(lightness, 0, 255, 0, 1, true);
+				int idx = std::pow(normalized, gamma.get()) * last;
 				idx = ofClamp(idx, 0, last);
 				const PaletteEntry & e = pal.entries[idx];
 				ofSetColor(e.color);

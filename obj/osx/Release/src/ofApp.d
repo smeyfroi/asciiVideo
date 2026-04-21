@@ -467,7 +467,7 @@ obj/osx/Release/src/ofApp.o: src/ofApp.cpp src/ofApp.h \
   ../../../addons/ofxGui/src/ofxButton.h \
   ../../../addons/ofxGui/src/ofxLabel.h \
   ../../../addons/ofxGui/src/ofxColorPicker.h \
-  ../../../addons/ofxGui/src/ofxPanel.h
+  ../../../addons/ofxGui/src/ofxPanel.h src/NativeDialog.h
 src/ofApp.h:
 ../../../libs/openFrameworks/ofMain.h:
 ../../../libs/openFrameworks/utils/ofConstants.h:
@@ -938,3 +938,4 @@ src/ofApp.h:
 ../../../addons/ofxGui/src/ofxLabel.h:
 ../../../addons/ofxGui/src/ofxColorPicker.h:
 ../../../addons/ofxGui/src/ofxPanel.h:
+src/NativeDialog.h:

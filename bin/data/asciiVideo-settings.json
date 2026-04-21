@@ -2,6 +2,7 @@
 	"settings": {
 		"fontPath": "Courier New Bold.ttf",
 		"fontSize": 9,
+		"gamma": 1.0,
 		"cellWidth": 7,
 		"cellHeight": 9,
 		"startPalette": "classic"

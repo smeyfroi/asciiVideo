@@ -71,6 +71,7 @@ private:
 	void cancelSampling();
 	std::vector<ofColor> kmeansColours(const std::vector<ofColor> & samples, int k);
 	void appendPaletteToConfigJson(const Palette & pal);
+	std::string buildHelpText() const;
 
 	void startProcessing(const std::filesystem::path & path);
 	void finishProcessing();
@@ -90,6 +91,7 @@ private:
 	std::filesystem::path outputPath;
 
 	bool processing = false;
+	bool showOverlay = true;
 	int framesWritten = 0;
 
 	// Sampling state machine

@@ -284,16 +284,28 @@ void ofApp::onPickFontPressed() {
 }
 
 //--------------------------------------------------------------
+std::string ofApp::buildHelpText() const {
+	std::string help = "tab: toggle overlays";
+	if (!renderFbo.isAllocated()) {
+		help += "\ndrag a video file to render it as ASCII";
+	}
+	if (processing) {
+		help += "\nq: stop current render";
+	}
+	if (isSampling) {
+		help += "\nesc: cancel palette sampling";
+	}
+	return help;
+}
+
+//--------------------------------------------------------------
 void ofApp::onSamplePalettePressed() {
 	if (isSampling) {
 		ofLogWarning() << "already sampling; ignoring press";
 		return;
 	}
-	if (processing) {
-		ofLogWarning() << "cannot sample while rendering; ignoring press";
-		return;
-	}
 	ofFileDialogResult r = ofSystemLoadDialog("Choose a video to sample colours from", false);
+
 	if (!r.bSuccess || r.getPath().empty()) return;
 
 	if (!beginSampling(r.getPath())) {
@@ -637,17 +649,17 @@ void ofApp::draw() {
 	ofSetColor(255);
 	if (renderFbo.isAllocated()) {
 		renderFbo.draw(0, 0);
-	} else {
+	} else if (showOverlay) {
 		ofDrawBitmapString("Drag a video file onto this window to render it as ASCII.\nOutput will be written next to the source as <name>_ascii.mp4.",
 			20, 40);
 	}
 
-	if (processing) {
+	if (showOverlay && processing) {
 		std::string hud = "rec  " + ofToString(framesWritten) + " / " + ofToString(player.getTotalNumFrames()) + " frames";
 		ofDrawBitmapStringHighlight(hud, 10, ofGetHeight() - 20);
 	}
 
-	if (isSampling) {
+	if (showOverlay && isSampling) {
 		const int margin = 40;
 		const int barH = 24;
 		const int barW = ofGetWidth() - margin * 2;
@@ -673,7 +685,17 @@ void ofApp::draw() {
 		ofPopStyle();
 	}
 
-	gui.draw();
+	if (showOverlay) {
+		std::string help = buildHelpText();
+		if (!help.empty()) {
+			float helpY = 20.0f;
+			if (renderFbo.isAllocated()) {
+				helpY = std::max(20.0f, ofGetHeight() - 60.0f);
+			}
+			ofDrawBitmapStringHighlight(help, 10, helpY);
+		}
+		gui.draw();
+	}
 }
 
 //--------------------------------------------------------------
@@ -748,6 +770,10 @@ void ofApp::dragEvent(ofDragInfo dragInfo) {
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
+	if (key == '\t') {
+		showOverlay = !showOverlay;
+		return;
+	}
 	if (key == 'q' && processing) {
 		ofLogNotice() << "user requested early stop";
 		finishProcessing();
